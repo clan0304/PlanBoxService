@@ -27,6 +27,7 @@ import {
 
 /**
  * Get or create a planner for a specific date
+ * Handles race conditions by catching duplicate key errors and retrying
  */
 export async function getOrCreatePlanner(date: string): Promise<DailyPlanner> {
   const { userId } = await auth();
@@ -34,7 +35,7 @@ export async function getOrCreatePlanner(date: string): Promise<DailyPlanner> {
 
   const supabase = createServerSupabaseClient();
 
-  // Try to get existing planner
+  // Try to get existing planner first
   const { data: existingPlanner } = await supabase
     .from('daily_planners')
     .select('*')
@@ -56,7 +57,38 @@ export async function getOrCreatePlanner(date: string): Promise<DailyPlanner> {
     .select()
     .single();
 
-  if (error) throw new Error(`Failed to create planner: ${error.message}`);
+  // Handle race condition: if another request created it simultaneously
+  if (error) {
+    // Check if it's a duplicate key error (PostgreSQL error code 23505)
+    if (error.code === '23505') {
+      console.log(
+        `⚠️ Race condition detected for planner ${date}, retrying fetch...`
+      );
+
+      // Another request created it, try to fetch it again
+      const { data: retryPlanner, error: retryError } = await supabase
+        .from('daily_planners')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('planner_date', date)
+        .single();
+
+      if (retryError || !retryPlanner) {
+        throw new Error(
+          `Failed to get planner after retry: ${
+            retryError?.message || 'Unknown error'
+          }`
+        );
+      }
+
+      console.log(`✅ Successfully retrieved planner after race condition`);
+      return retryPlanner as DailyPlanner;
+    }
+
+    // Other errors should throw normally
+    throw new Error(`Failed to create planner: ${error.message}`);
+  }
+
   return newPlanner as DailyPlanner;
 }
 
@@ -67,7 +99,7 @@ export async function getFullPlanner(date: string): Promise<FullPlanner> {
   const planner = await getOrCreatePlanner(date);
   const supabase = createServerSupabaseClient();
 
-  // Fetch all related data
+  // Fetch all related data in parallel
   const [brainDumpResult, prioritiesResult, timeBlocksResult] =
     await Promise.all([
       supabase
@@ -110,7 +142,7 @@ export async function createBrainDumpItem(
 
   const supabase = createServerSupabaseClient();
 
-  // Get highest order_index
+  // Get highest order_index for this planner
   const { data: existingItems } = await supabase
     .from('brain_dump_items')
     .select('order_index')
@@ -185,6 +217,7 @@ export async function deleteBrainDumpItem(id: string): Promise<void> {
 
 /**
  * Create or update a priority
+ * Uses upsert to handle both create and update in one call
  */
 export async function upsertTopPriority(
   input: Omit<CreateTopPriorityInput, 'user_id'>

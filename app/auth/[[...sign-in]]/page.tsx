@@ -2,7 +2,7 @@ import { SignIn } from '@clerk/nextjs';
 
 export default function AuthPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-amber-50 to-orange-100">
+    <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-amber-50 to-orange-100">
       <div className="w-full max-w-md px-4">
         {/* Header */}
         <div className="mb-8 text-center">

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
 import { getFullPlanner } from '@/lib/planner-api';
 import { getToday } from '@/lib/utils';
+import BrainDumpList from '@/components/braindump/BrainDumpList';
 
 export default async function DashboardPage() {
   const { userId } = await auth();
@@ -87,53 +88,11 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            {/* Brain Dump */}
-            <div className="rounded-lg bg-white p-6 shadow">
-              <h3 className="mb-4 text-lg font-bold">Brain Dump</h3>
-              <div className="mb-4">
-                <input
-                  type="text"
-                  placeholder="Add a thought..."
-                  className="w-full rounded border-2 border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <ul className="space-y-2">
-                {planner.brain_dump_items.map((item) => (
-                  <li
-                    key={item.id}
-                    className={`flex items-center gap-2 rounded border border-gray-200 p-2 hover:shadow-md ${
-                      item.is_priority ? 'border-l-4 border-l-blue-500' : ''
-                    } ${
-                      item.is_scheduled ? 'border-l-4 border-l-green-500' : ''
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={item.is_completed}
-                      className="h-4 w-4"
-                    />
-                    <span
-                      className={`flex-1 ${
-                        item.is_completed ? 'line-through opacity-50' : ''
-                      }`}
-                    >
-                      {item.text}
-                    </span>
-                    {item.is_priority && (
-                      <span className="text-xs text-blue-600">⭐</span>
-                    )}
-                    {item.is_scheduled && (
-                      <span className="text-xs text-green-600">📅</span>
-                    )}
-                  </li>
-                ))}
-                {planner.brain_dump_items.length === 0 && (
-                  <p className="text-sm italic text-gray-400">
-                    No items yet. Start adding your thoughts!
-                  </p>
-                )}
-              </ul>
-            </div>
+            {/* Brain Dump - NOW INTERACTIVE! */}
+            <BrainDumpList
+              items={planner.brain_dump_items}
+              plannerId={planner.id}
+            />
           </div>
 
           {/* Right Column: Timeboxing Schedule */}
