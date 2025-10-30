@@ -109,12 +109,12 @@ export async function getFullPlanner(date: string): Promise<FullPlanner> {
         .order('order_index', { ascending: true }),
       supabase
         .from('top_priorities')
-        .select('*')
+        .select('*, brain_dump_items(*)')
         .eq('planner_id', planner.id)
         .order('priority_slot', { ascending: true }),
       supabase
         .from('time_blocks')
-        .select('*')
+        .select('*, brain_dump_items(*)')
         .eq('planner_id', planner.id)
         .order('start_time', { ascending: true }),
     ]);
@@ -285,6 +285,51 @@ export async function deleteTopPriority(id: string): Promise<void> {
     .eq('user_id', userId);
 
   if (error) throw new Error(`Failed to delete priority: ${error.message}`);
+}
+
+/**
+ * Swap a priority item - replaces existing priority with new brain dump item
+ * If the slot is occupied, the old item's is_priority flag is automatically reset via trigger
+ *
+ * @param plannerId - The planner ID
+ * @param prioritySlot - The priority slot number (1, 2, or 3)
+ * @param brainDumpItemId - The brain dump item ID to add to priorities
+ */
+export async function swapPriorityItem(
+  plannerId: string,
+  prioritySlot: number,
+  brainDumpItemId: string
+): Promise<TopPriority> {
+  const { userId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+
+  const supabase = createServerSupabaseClient();
+
+  // Use upsert to automatically replace if exists, or insert if empty
+  // The database triggers will handle setting/unsetting is_priority flags
+  const { data, error } = await supabase
+    .from('top_priorities')
+    .upsert(
+      {
+        planner_id: plannerId,
+        user_id: userId,
+        priority_slot: prioritySlot,
+        brain_dump_item_id: brainDumpItemId,
+        custom_text: null, // Clear any custom text when using brain dump item
+      },
+      {
+        onConflict: 'planner_id,priority_slot',
+      }
+    )
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to swap priority: ${error.message}`);
+
+  console.log(
+    `✅ Priority swapped: Slot ${prioritySlot} → Item ${brainDumpItemId}`
+  );
+  return data as TopPriority;
 }
 
 // ============================================
