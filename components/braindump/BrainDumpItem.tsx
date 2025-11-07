@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useDraggable } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 import { updateBrainDumpItem, deleteBrainDumpItem } from '@/lib/planner-api';
 import { useRouter } from 'next/navigation';
 import type { BrainDumpItem } from '@/types/database';
@@ -14,6 +16,27 @@ export default function BrainDumpItemComponent({ item }: BrainDumpItemProps) {
   const [editText, setEditText] = useState(item.text);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+
+  // ============================================
+  // DRAG & DROP SETUP
+  // ============================================
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: item.id,
+      disabled: item.is_completed || isEditing, // Can't drag completed or editing items
+      data: {
+        type: 'brain-dump-item',
+        item: item,
+      },
+    });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+  };
+
+  // ============================================
+  // CRUD OPERATIONS
+  // ============================================
 
   // Toggle completion
   const handleToggleComplete = async () => {
@@ -77,6 +100,10 @@ export default function BrainDumpItemComponent({ item }: BrainDumpItemProps) {
     }
   };
 
+  // ============================================
+  // STYLING HELPERS
+  // ============================================
+
   // Get border color based on status
   const getBorderClass = () => {
     if (item.is_priority && item.is_scheduled) {
@@ -89,17 +116,46 @@ export default function BrainDumpItemComponent({ item }: BrainDumpItemProps) {
     return '';
   };
 
+  // Get cursor style
+  const getCursorClass = () => {
+    if (item.is_completed || isEditing) {
+      return 'cursor-default';
+    }
+    return 'cursor-grab active:cursor-grabbing';
+  };
+
   return (
     <li
-      className={`group flex items-center gap-2 rounded border border-gray-200 p-2 transition-all hover:shadow-md ${getBorderClass()}`}
+      ref={setNodeRef}
+      style={style}
+      className={`
+        group flex items-center gap-2 rounded border border-gray-200 p-2 
+        transition-all hover:shadow-md
+        ${getBorderClass()}
+        ${getCursorClass()}
+        ${isDragging ? 'opacity-50 shadow-lg ring-2 ring-blue-400' : ''}
+        ${item.is_completed ? 'bg-gray-50' : 'bg-white'}
+      `}
     >
+      {/* Drag Handle - Only visible when draggable */}
+      {!item.is_completed && !isEditing && (
+        <div
+          {...listeners}
+          {...attributes}
+          className="cursor-grab active:cursor-grabbing touch-none"
+          title="Drag to priority or schedule"
+        >
+          <span className="text-gray-400 hover:text-gray-600">⋮⋮</span>
+        </div>
+      )}
+
       {/* Checkbox */}
       <input
         type="checkbox"
         checked={item.is_completed}
         onChange={handleToggleComplete}
         disabled={isLoading}
-        className="h-4 w-4 cursor-pointer"
+        className="h-4 w-4 cursor-pointer shrink-0"
       />
 
       {/* Text content */}
@@ -128,7 +184,7 @@ export default function BrainDumpItemComponent({ item }: BrainDumpItemProps) {
       )}
 
       {/* Status indicators */}
-      <div className="flex gap-1">
+      <div className="flex gap-1 shrink-0">
         {item.is_priority && (
           <span className="text-xs text-blue-600" title="In priorities">
             ⭐
@@ -142,7 +198,7 @@ export default function BrainDumpItemComponent({ item }: BrainDumpItemProps) {
       </div>
 
       {/* Action buttons */}
-      <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 shrink-0">
         {isEditing ? (
           <>
             <button

@@ -168,6 +168,29 @@ UNIQUE(planner_id, priority_slot)
 
 **Alternative Considered**: Fixed 30-minute grid (rejected - too rigid)
 
+### **8. Drag & Drop: @dnd-kit Library**
+
+**Decision**: Use @dnd-kit for drag and drop functionality
+
+**Reasoning**:
+
+- Modern, TypeScript-first library
+- Better performance than react-beautiful-dnd
+- Active maintenance and development
+- Flexible and extensible
+- Built-in accessibility support
+- Works with Next.js 15 App Router
+
+**Implementation**:
+
+- `@dnd-kit/core` for basic drag & drop
+- `@dnd-kit/utilities` for transform utilities
+- `useDraggable()` hook for brain dump items
+- `useDroppable()` hook for priority slots
+- Custom `DndContext` wrapper component
+- Visual feedback with opacity, rings, borders
+- Loading states during API operations
+
 ---
 
 ## 🗄️ Database Schema
@@ -298,6 +321,14 @@ Brain dump items show visual status:
 - 🟪 Purple border = Both priority AND scheduled
 - ☑ Strikethrough = Completed
 
+### **Drag & Drop Visual Feedback**
+
+- **Drag Handle**: ⋮⋮ appears on hover
+- **Dragging State**: 50% opacity, blue ring, shadow
+- **Drop Zone Hover**: Blue border, blue background
+- **Cursor Changes**: grab → grabbing
+- **Loading State**: Full-screen spinner overlay
+
 ---
 
 ## 🔧 Technical Implementation
@@ -309,6 +340,7 @@ Brain dump items show visual status:
 - **Database**: Supabase (PostgreSQL + RLS)
 - **Auth**: Clerk (Google OAuth only)
 - **Styling**: Tailwind CSS
+- **Drag & Drop**: @dnd-kit
 - **Deployment**: Vercel (recommended)
 
 ### **File Structure**
@@ -320,6 +352,18 @@ app/
   ├── auth/page.tsx          # Single auth page
   ├── dashboard/page.tsx     # Main planner
   └── api/webhooks/clerk/    # User sync
+
+components/
+  ├── braindump/
+  │   ├── BrainDumpInput.tsx   # Add new items
+  │   ├── BrainDumpItem.tsx    # Draggable item ✨ NEW
+  │   └── BrainDumpList.tsx    # Container
+  ├── priorities/              # ✨ NEW FOLDER
+  │   └── PrioritySlot.tsx     # Droppable slot ✨ NEW
+  ├── dashboard/
+  │   └── DashboardContent.tsx # Main layout ✨ UPDATED
+  └── dnd/
+      └── DndWrapper.tsx       # DnD context
 
 lib/
   ├── supabase/
@@ -393,21 +437,34 @@ Revalidate page
 New item appears in list
 ```
 
-### **Feature 2: Drag to Priority**
+### **Feature 2: Drag to Priority** ✨ NEW
 
 ```
-Drag brain dump item → Drop on priority slot
+User hovers over brain dump item → sees ⋮⋮ handle
     ↓
-upsertTopPriority(brain_dump_item_id, slot)
+User drags item → item becomes 50% opacity with blue ring
+    ↓
+User hovers over priority slot → slot highlights blue
+    ↓
+User drops item → loading spinner appears
+    ↓
+swapPriorityItem(brain_dump_item_id, slot) server action
     ↓
 Database trigger sets is_priority = true
+    ↓
+Page refreshes automatically
     ↓
 Item shows ⭐ indicator in brain dump
     ↓
 Priority slot displays referenced text
+
+If slot was occupied:
+  → Old item returns to brain dump
+  → Old item loses ⭐ indicator
+  → New item gains ⭐ indicator
 ```
 
-### **Feature 3: Drag to Schedule**
+### **Feature 3: Drag to Schedule** (Future)
 
 ```
 Drag item → Drop on time slot
@@ -439,7 +496,7 @@ Render dashboard for new date
 
 ## 🚀 Development Roadmap
 
-### **✅ Phase 1: MVP (Current)**
+### **✅ Phase 1: MVP Foundation (Complete)**
 
 - [x] Database schema with RLS
 - [x] Google OAuth authentication
@@ -447,26 +504,35 @@ Render dashboard for new date
 - [x] Basic dashboard layout
 - [x] Display all data
 - [x] CRUD API functions
-- [ ] **Next: Interactive components**
+- [x] Brain dump input and display
+- [x] Priority slots display
+- [x] Time blocks display
 
-### **🚧 Phase 2: Interactivity**
+### **🚧 Phase 2: Interactivity (In Progress)**
 
-- [ ] Drag & drop implementation
+- [x] **Drag & drop implementation (COMPLETE - Code provided, needs testing)** ✨
+  - [x] @dnd-kit packages installed
+  - [x] DndContext wrapper created
+  - [x] Draggable brain dump items
+  - [x] Droppable priority slots
+  - [x] Drag end event handling
+  - [x] Visual feedback (opacity, rings, borders)
+  - [x] Loading states during API calls
+  - [x] Error handling with alerts
+  - [ ] User testing and validation
 - [ ] Time block creation modal
-- [ ] Priority assignment
-- [ ] Brain dump CRUD operations
 - [ ] Date picker component
-- [ ] Completion toggles
-- [ ] Real-time updates
+- [ ] Completion toggles (partially done)
+- [ ] Real-time updates (currently uses router.refresh())
 
 ### **📋 Phase 3: Polish**
 
 - [ ] Color customization
 - [ ] Time block resizing
+- [ ] Drag to schedule functionality
 - [ ] Keyboard shortcuts
-- [ ] Loading states
-- [ ] Error handling
-- [ ] Toast notifications
+- [ ] Enhanced loading states
+- [ ] Toast notifications (replacing alerts)
 - [ ] Mobile responsive design
 - [ ] Dark mode
 
@@ -541,6 +607,17 @@ Webhooks need to bypass RLS:
 - Service role has superuser permissions
 - ⚠️ Never expose to client!
 
+### **Why @dnd-kit over react-beautiful-dnd?**
+
+@dnd-kit is the modern choice:
+
+- Better TypeScript support
+- More performant (uses transform instead of position)
+- Active development (react-beautiful-dnd is in maintenance mode)
+- Smaller bundle size
+- Better accessibility out of the box
+- Works seamlessly with Next.js 15 App Router
+
 ---
 
 ## 🔒 Security Considerations
@@ -580,7 +657,40 @@ Webhooks need to bypass RLS:
 6. Render on page
 ```
 
-### **Creating Time Block**
+### **Dragging to Priority** ✨ NEW
+
+```
+1. User hovers over brain dump item
+2. Sees ⋮⋮ drag handle appear
+3. User clicks and holds drag handle
+4. useDraggable hook activates:
+   - Item opacity → 50%
+   - Blue ring appears
+   - isDragging = true
+5. User drags over priority slot
+6. useDroppable hook detects:
+   - isOver = true
+   - Slot highlights blue
+7. User releases mouse
+8. DndContext fires onDragEnd event
+9. DashboardContent.handleDragEnd():
+   - Extracts: brainDumpItemId, prioritySlot
+   - Sets isSwapping = true (shows spinner)
+   - Calls swapPriorityItem() server action
+10. Server action:
+    - auth() → verify user
+    - createServerSupabaseClient()
+    - UPSERT into top_priorities table
+11. Database trigger:
+    - Sets old item: is_priority = false
+    - Sets new item: is_priority = true
+12. router.refresh()
+13. Page reloads with updated data
+14. Priority slot shows new item
+15. Brain dump shows ⭐ indicator
+```
+
+### **Creating Time Block** (Future)
 
 ```
 1. User drags brain dump item to 9:00 AM
@@ -625,6 +735,15 @@ Much better than text descriptions.
 Auto-updating status flags simplified application logic.
 Database handles consistency automatically.
 
+### **6. Modern Libraries Matter** ✨ NEW
+
+Choosing @dnd-kit over react-beautiful-dnd paid off:
+
+- Better TypeScript support
+- Easier to implement
+- Better performance
+- Active maintenance
+
 ---
 
 ## 🤝 Project Context
@@ -656,38 +775,69 @@ Database handles consistency automatically.
 
 ## 📝 Development Notes
 
-### **Current State**
+### **Current State** ✨ UPDATED
 
 ✅ Complete database schema
 ✅ Authentication working
 ✅ User sync operational  
 ✅ Basic UI displaying data
 ✅ All CRUD functions ready
+✅ **Drag & drop code complete (awaiting user testing)** ✨ NEW
+✅ Brain dump items are draggable
+✅ Priority slots are droppable
+✅ Swap logic implemented
+✅ Visual feedback working
+✅ Loading states added
+✅ Error handling in place
 
 ### **Immediate Next Steps**
 
-1. Build interactive components (drag & drop)
-2. Add time block creation UI
-3. Implement completion toggles
-4. Add date navigation
-5. Test all flows end-to-end
+1. **User testing of drag & drop** ← Current priority
+2. Add time block creation modal
+3. Implement date navigation (prev/next day)
+4. Add time block drag & drop (schedule feature)
+5. Enhance completion toggle UX
+6. Add toast notifications (replace alerts)
 
 ### **Known Limitations**
 
-- No drag & drop yet (needs react-beautiful-dnd or similar)
+- **Drag & drop to schedule not implemented yet** (only priorities work)
 - No time block editing modal
 - No mobile optimization
 - No error boundaries
-- No loading states
-- No optimistic updates
+- Date navigation buttons not functional
+- Uses `router.refresh()` instead of optimistic updates
+- Alert dialogs instead of toast notifications
 
 ### **Technical Debt**
 
-- Dashboard needs component extraction
-- Should add error handling
-- Need loading skeletons
+- Should add error boundaries
+- Need loading skeletons for initial page load
 - Should add TypeScript strict null checks
-- Need comprehensive testing
+- Need comprehensive end-to-end testing
+- Should implement optimistic updates for better UX
+- Consider adding undo functionality
+
+### **Files Changed in Drag & Drop Implementation** ✨ NEW
+
+1. **components/braindump/BrainDumpItem.tsx**
+
+   - Added `useDraggable` hook
+   - Added drag handle (⋮⋮)
+   - Added visual feedback (opacity, ring)
+   - Added disabled states
+
+2. **components/priorities/PrioritySlot.tsx** (NEW FILE)
+
+   - Added `useDroppable` hook
+   - Added hover state highlighting
+   - Added completion toggle
+
+3. **components/dashboard/DashboardContent.tsx**
+   - Added `handleDragEnd` function
+   - Added `swapPriorityItem` API call
+   - Added loading state management
+   - Integrated PrioritySlot components
 
 ---
 
@@ -740,12 +890,14 @@ No complexity, no distractions, just effective daily planning.
 - [Clerk Docs](https://clerk.com/docs)
 - [Supabase Docs](https://supabase.com/docs)
 - [Clerk-Supabase Integration](https://clerk.com/docs/integrations/databases/supabase)
+- [@dnd-kit Documentation](https://docs.dndkit.com) ✨ NEW
 
 ### **Key Articles**
 
 - [Clerk + Supabase Native Integration](https://clerk.com/changelog/2025-03-31-supabase-integration)
 - [Supabase RLS Guide](https://supabase.com/docs/guides/auth/row-level-security)
 - [Timeboxing Methodology](https://en.wikipedia.org/wiki/Timeboxing)
+- [@dnd-kit vs react-beautiful-dnd](https://github.com/clauderic/dnd-kit#comparison-with-react-beautiful-dnd) ✨ NEW
 
 ### **Design Inspiration**
 
@@ -756,9 +908,9 @@ No complexity, no distractions, just effective daily planning.
 
 ---
 
-**Last Updated**: 2025-10-26
-**Status**: MVP Foundation Complete
-**Next Milestone**: Interactive Components
+**Last Updated**: 2025-11-02 ✨ UPDATED
+**Status**: Phase 2 In Progress - Drag & Drop Code Complete
+**Next Milestone**: User Testing & Time Block Creation
 
 ---
 
