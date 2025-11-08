@@ -94,6 +94,7 @@ export async function getOrCreatePlanner(date: string): Promise<DailyPlanner> {
 
 /**
  * Get full planner with all related data
+ * ✨ FIXED: Uses manual joins for reliable brain_dump_items association
  */
 export async function getFullPlanner(date: string): Promise<FullPlanner> {
   const planner = await getOrCreatePlanner(date);
@@ -109,21 +110,51 @@ export async function getFullPlanner(date: string): Promise<FullPlanner> {
         .order('order_index', { ascending: true }),
       supabase
         .from('top_priorities')
-        .select('*, brain_dump_items(*)')
+        .select('*')
         .eq('planner_id', planner.id)
         .order('priority_slot', { ascending: true }),
       supabase
         .from('time_blocks')
-        .select('*, brain_dump_items(*)')
+        .select('*')
         .eq('planner_id', planner.id)
         .order('start_time', { ascending: true }),
     ]);
 
+  // ✨ MANUAL JOIN: Create a lookup map for brain dump items
+  const brainDumpMap = new Map<string, BrainDumpItem>(
+    (brainDumpResult.data || []).map((item) => [item.id, item as BrainDumpItem])
+  );
+
+  // ✨ MANUAL JOIN: Attach brain_dump_items to priorities
+  const prioritiesWithItems = (prioritiesResult.data || []).map((priority) => ({
+    ...priority,
+    brain_dump_item: priority.brain_dump_item_id
+      ? brainDumpMap.get(priority.brain_dump_item_id)
+      : undefined,
+  }));
+
+  // ✨ MANUAL JOIN: Attach brain_dump_items to time blocks
+  const timeBlocksWithItems = (timeBlocksResult.data || []).map((block) => ({
+    ...block,
+    brain_dump_item: block.brain_dump_item_id
+      ? brainDumpMap.get(block.brain_dump_item_id)
+      : undefined,
+  }));
+
+  console.log('📊 Planner data loaded:', {
+    brainDumpItems: brainDumpResult.data?.length || 0,
+    priorities: prioritiesResult.data?.length || 0,
+    timeBlocks: timeBlocksResult.data?.length || 0,
+    prioritiesWithText: prioritiesWithItems.filter(
+      (p) => p.brain_dump_item?.text || p.custom_text
+    ).length,
+  });
+
   return {
     ...planner,
     brain_dump_items: (brainDumpResult.data || []) as BrainDumpItem[],
-    top_priorities: (prioritiesResult.data || []) as TopPriority[],
-    time_blocks: (timeBlocksResult.data || []) as TimeBlock[],
+    top_priorities: prioritiesWithItems as TopPriority[],
+    time_blocks: timeBlocksWithItems as TimeBlock[],
   };
 }
 
@@ -209,6 +240,43 @@ export async function deleteBrainDumpItem(id: string): Promise<void> {
 
   if (error)
     throw new Error(`Failed to delete brain dump item: ${error.message}`);
+}
+
+/**
+ * ✨ NEW: Reorder brain dump items
+ * Updates order_index for all items after a drag-and-drop reorder
+ *
+ * @param items - Array of {id, order_index} with new order
+ */
+export async function reorderBrainDumpItems(
+  items: { id: string; order_index: number }[]
+): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+
+  const supabase = createServerSupabaseClient();
+
+  console.log('🔄 Reordering brain dump items:', items);
+
+  // Update all items in parallel for better performance
+  const updates = items.map((item) =>
+    supabase
+      .from('brain_dump_items')
+      .update({ order_index: item.order_index })
+      .eq('id', item.id)
+      .eq('user_id', userId)
+  );
+
+  const results = await Promise.all(updates);
+
+  // Check if any updates failed
+  const errors = results.filter((r) => r.error);
+  if (errors.length > 0) {
+    console.error('❌ Failed to reorder some items:', errors);
+    throw new Error('Failed to reorder brain dump items');
+  }
+
+  console.log('✅ Brain dump items reordered successfully');
 }
 
 // ============================================
@@ -332,6 +400,46 @@ export async function swapPriorityItem(
   return data as TopPriority;
 }
 
+/**
+ * ✨ NEW: Reorder priority slots
+ * Swaps priority_slot values for all priorities when user reorders them
+ *
+ * @param plannerId - The planner ID
+ * @param slotMapping - Array of {id, newSlot} showing new positions
+ */
+export async function reorderPrioritySlots(
+  plannerId: string,
+  slotMapping: { id: string; newSlot: number }[]
+): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+
+  const supabase = createServerSupabaseClient();
+
+  console.log('🔄 Reordering priority slots:', slotMapping);
+
+  // Update all priorities in parallel
+  const updates = slotMapping.map((mapping) =>
+    supabase
+      .from('top_priorities')
+      .update({ priority_slot: mapping.newSlot })
+      .eq('id', mapping.id)
+      .eq('planner_id', plannerId)
+      .eq('user_id', userId)
+  );
+
+  const results = await Promise.all(updates);
+
+  // Check if any updates failed
+  const errors = results.filter((r) => r.error);
+  if (errors.length > 0) {
+    console.error('❌ Failed to reorder some priorities:', errors);
+    throw new Error('Failed to reorder priority slots');
+  }
+
+  console.log('✅ Priority slots reordered successfully');
+}
+
 // ============================================
 // TIME BLOCKS OPERATIONS
 // ============================================
@@ -400,27 +508,4 @@ export async function deleteTimeBlock(id: string): Promise<void> {
     .eq('user_id', userId);
 
   if (error) throw new Error(`Failed to delete time block: ${error.message}`);
-}
-
-/**
- * Reorder brain dump items
- */
-export async function reorderBrainDumpItems(
-  items: { id: string; order_index: number }[]
-): Promise<void> {
-  const { userId } = await auth();
-  if (!userId) throw new Error('Unauthorized');
-
-  const supabase = createServerSupabaseClient();
-
-  // Update all items in parallel
-  await Promise.all(
-    items.map((item) =>
-      supabase
-        .from('brain_dump_items')
-        .update({ order_index: item.order_index })
-        .eq('id', item.id)
-        .eq('user_id', userId)
-    )
-  );
 }

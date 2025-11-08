@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useDraggable } from '@dnd-kit/core';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { updateBrainDumpItem, deleteBrainDumpItem } from '@/lib/planner-api';
 import { useRouter } from 'next/navigation';
@@ -18,20 +18,27 @@ export default function BrainDumpItemComponent({ item }: BrainDumpItemProps) {
   const router = useRouter();
 
   // ============================================
-  // DRAG & DROP SETUP
+  // DRAG & DROP SETUP - NOW USING SORTABLE
   // ============================================
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({
-      id: item.id,
-      disabled: item.is_completed || isEditing, // Can't drag completed or editing items
-      data: {
-        type: 'brain-dump-item',
-        item: item,
-      },
-    });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: item.id,
+    disabled: item.is_completed || isEditing, // Can't drag completed or editing items
+    data: {
+      type: 'brain-dump-item',
+      item: item,
+    },
+  });
 
   const style = {
-    transform: CSS.Translate.toString(transform),
+    transform: CSS.Transform.toString(transform),
+    transition,
   };
 
   // ============================================
@@ -133,7 +140,7 @@ export default function BrainDumpItemComponent({ item }: BrainDumpItemProps) {
         transition-all hover:shadow-md
         ${getBorderClass()}
         ${getCursorClass()}
-        ${isDragging ? 'opacity-50 shadow-lg ring-2 ring-blue-400' : ''}
+        ${isDragging ? 'opacity-50 shadow-lg ring-2 ring-blue-400 z-50' : ''}
         ${item.is_completed ? 'bg-gray-50' : 'bg-white'}
       `}
     >
@@ -143,7 +150,7 @@ export default function BrainDumpItemComponent({ item }: BrainDumpItemProps) {
           {...listeners}
           {...attributes}
           className="cursor-grab active:cursor-grabbing touch-none"
-          title="Drag to priority or schedule"
+          title="Drag to reorder or move to priority"
         >
           <span className="text-gray-400 hover:text-gray-600">⋮⋮</span>
         </div>
