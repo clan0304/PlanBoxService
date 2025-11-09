@@ -20,11 +20,16 @@ import { useRouter } from 'next/navigation';
 import DndWrapper from '@/components/dnd/DndWrapper';
 import BrainDumpList from '@/components/braindump/BrainDumpList';
 import PrioritySlot from '@/components/priorities/PrioritySlot';
+import TimeBlock from '@/components/schedule/TimeBlock';
 import TimeBlockModal, {
   type TimeBlockFormData,
 } from '@/components/schedule/TimeBlockModal';
-import ResizableTimeBlock from '@/components/schedule/ResizableTimeBlock';
-import type { FullPlanner, TopPriority, TimeBlock } from '@/types/database';
+import DateNavigator from '@/components/dashboard/DateNavigator';
+import type {
+  FullPlanner,
+  TopPriority,
+  TimeBlock as TimeBlockType,
+} from '@/types/database';
 import {
   swapPriorityItem,
   updateTopPriority,
@@ -95,17 +100,10 @@ export default function DashboardContent({
   const [activeId, setActiveId] = useState<string | null>(null);
   const router = useRouter();
 
-  // ✨ NEW: Time block modal state
+  // ✨ Time block modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingBlock, setEditingBlock] = useState<TimeBlock | null>(null);
+  const [editingBlock, setEditingBlock] = useState<TimeBlockType | null>(null);
   const [droppedHour, setDroppedHour] = useState<number | null>(null);
-
-  // ✨ NEW: Track resize previews for real-time visual updates
-  const [resizingBlockId, setResizingBlockId] = useState<string | null>(null);
-  const [resizePreview, setResizePreview] = useState<{
-    startTime: string;
-    endTime: string;
-  } | null>(null);
 
   // ✨ FIX: Sync local state when server data changes (after refresh)
   useEffect(() => {
@@ -141,6 +139,15 @@ export default function DashboardContent({
       },
     })
   );
+
+  // ============================================
+  // DATE NAVIGATION HANDLER
+  // ============================================
+
+  const handleDateChange = (newDate: string) => {
+    // Navigate to the new date
+    router.push(`/dashboard?date=${newDate}`);
+  };
 
   // ============================================
   // DRAG EVENT HANDLERS
@@ -195,7 +202,7 @@ export default function DashboardContent({
     }
 
     // ============================================
-    // SCENARIO 4: Brain Dump → Time Slot (Schedule) ✨ NEW
+    // SCENARIO 4: Brain Dump → Time Slot (Schedule)
     // ============================================
     if (activeType === 'brain-dump-item' && overType === 'time-slot') {
       const overHour = over.data.current?.hour;
@@ -445,7 +452,7 @@ export default function DashboardContent({
   }
 
   // ============================================
-  // TIME BLOCK HANDLERS ✨ NEW
+  // TIME BLOCK HANDLERS
   // ============================================
 
   /**
@@ -539,30 +546,10 @@ export default function DashboardContent({
   /**
    * Handle clicking on time block to edit
    */
-  function handleEditTimeBlock(block: TimeBlock) {
+  function handleEditTimeBlock(block: TimeBlockType) {
     setEditingBlock(block);
     setDroppedHour(null);
     setIsModalOpen(true);
-  }
-
-  /**
-   * ✨ NEW: Handle resize preview for real-time visual updates
-   */
-  function handleResizePreview(
-    blockId: string,
-    tempStartTime: string,
-    tempEndTime: string
-  ) {
-    setResizingBlockId(blockId);
-    setResizePreview({ startTime: tempStartTime, endTime: tempEndTime });
-  }
-
-  /**
-   * ✨ NEW: Clear resize preview when resize ends
-   */
-  function handleResizeEnd() {
-    setResizingBlockId(null);
-    setResizePreview(null);
   }
 
   // ============================================
@@ -605,13 +592,9 @@ export default function DashboardContent({
 
         {/* Main Content */}
         <main className="mx-auto max-w-7xl px-4 py-8">
-          {/* Date Navigation */}
-          <div className="mb-6 rounded-lg bg-white p-4 shadow">
-            <div className="flex items-center justify-between">
-              <button className="rounded px-4 py-2 hover:bg-gray-100">←</button>
-              <h2 className="text-xl font-semibold">{date}</h2>
-              <button className="rounded px-4 py-2 hover:bg-gray-100">→</button>
-            </div>
+          {/* ✨ NEW: Date Navigation with Calendar Popup */}
+          <div className="mb-6">
+            <DateNavigator currentDate={date} onDateChange={handleDateChange} />
           </div>
 
           {/* Planner Layout */}
@@ -652,7 +635,7 @@ export default function DashboardContent({
               />
             </div>
 
-            {/* Right Column: Timeboxing Schedule - ✨ VISUAL TIMELINE */}
+            {/* Right Column: Timeboxing Schedule */}
             <div className="lg:col-span-2">
               <div className="rounded-lg bg-white p-6 shadow">
                 <h3 className="mb-4 text-lg font-bold">Schedule</h3>
@@ -689,19 +672,8 @@ export default function DashboardContent({
                     ))}
                     {/* Absolutely Positioned Time Blocks */}
                     {planner.time_blocks.map((block) => {
-                      // ✨ Use preview times if this block is being resized
-                      const isResizing = resizingBlockId === block.id;
-                      const displayStartTime =
-                        isResizing && resizePreview
-                          ? resizePreview.startTime
-                          : block.start_time;
-                      const displayEndTime =
-                        isResizing && resizePreview
-                          ? resizePreview.endTime
-                          : block.end_time;
-
-                      const startMinutes = timeToMinutes(displayStartTime);
-                      const endMinutes = timeToMinutes(displayEndTime);
+                      const startMinutes = timeToMinutes(block.start_time);
+                      const endMinutes = timeToMinutes(block.end_time);
                       const topPosition = (startMinutes / 60) * 80; // 80px per hour
                       const height = ((endMinutes - startMinutes) / 60) * 80;
 
@@ -712,14 +684,12 @@ export default function DashboardContent({
                           style={{
                             top: `${topPosition}px`,
                             height: `${height}px`,
-                            zIndex: isResizing ? 50 : 10, // Elevate resizing block
+                            zIndex: 10,
                           }}
                         >
-                          <ResizableTimeBlock
+                          <TimeBlock
                             block={block}
                             onEdit={handleEditTimeBlock}
-                            onResizePreview={handleResizePreview}
-                            onResizeEnd={handleResizeEnd}
                           />
                         </div>
                       );

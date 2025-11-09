@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { updateBrainDumpItem, deleteBrainDumpItem } from '@/lib/planner-api';
 import { useRouter } from 'next/navigation';
 import type { BrainDumpItem } from '@/types/database';
+import { toast } from 'sonner';
 
 interface BrainDumpItemProps {
   item: BrainDumpItem;
@@ -75,9 +76,11 @@ export default function BrainDumpItemComponent({ item }: BrainDumpItemProps) {
       });
       setIsEditing(false);
       router.refresh();
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-      console.error('Failed to update text:', error);
-      alert('Failed to update item. Please try again.');
+      toast.error('Failed to update', {
+        description: 'Please try again.',
+      });
     } finally {
       setIsLoading(false);
     }

@@ -1,3 +1,5 @@
+// app/dashboard/page.tsx - Updated to handle date selection
+
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
@@ -5,7 +7,13 @@ import { getFullPlanner } from '@/lib/planner-api';
 import { getToday } from '@/lib/utils';
 import DashboardContent from '@/components/dashboard/DashboardContent';
 
-export default async function DashboardPage() {
+interface DashboardPageProps {
+  searchParams: Promise<{ date?: string }>;
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: DashboardPageProps) {
   const { userId } = await auth();
 
   if (!userId) {
@@ -13,17 +21,20 @@ export default async function DashboardPage() {
   }
 
   const user = await currentUser();
-  const today = getToday();
 
-  // Get today's planner data
-  const planner = await getFullPlanner(today);
+  // Get date from query params or use today
+  const params = await searchParams;
+  const date = params.date || getToday();
+
+  // Get planner data for the selected date
+  const planner = await getFullPlanner(date);
 
   return (
     <>
-      <DashboardContent 
-        planner={planner} 
+      <DashboardContent
+        planner={planner}
         userName={user?.firstName || 'User'}
-        date={today}
+        date={date}
       />
       {/* Position UserButton absolutely in the header */}
       <div className="fixed top-4 right-4 z-10">
