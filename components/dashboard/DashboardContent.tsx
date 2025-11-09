@@ -8,6 +8,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -19,13 +20,57 @@ import { useRouter } from 'next/navigation';
 import DndWrapper from '@/components/dnd/DndWrapper';
 import BrainDumpList from '@/components/braindump/BrainDumpList';
 import PrioritySlot from '@/components/priorities/PrioritySlot';
-import type { FullPlanner, TopPriority } from '@/types/database';
+import TimeBlockModal, {
+  type TimeBlockFormData,
+} from '@/components/schedule/TimeBlockModal';
+import ResizableTimeBlock from '@/components/schedule/ResizableTimeBlock';
+import type { FullPlanner, TopPriority, TimeBlock } from '@/types/database';
 import {
   swapPriorityItem,
   updateTopPriority,
   reorderBrainDumpItems,
   reorderPrioritySlots,
+  createTimeBlock,
+  updateTimeBlock,
 } from '@/lib/planner-api';
+import { timeToMinutes } from '@/lib/utils';
+
+// ============================================
+// DROPPABLE TIME SLOT COMPONENT (for drag & drop)
+// ============================================
+interface DroppableTimeSlotProps {
+  hour: number;
+  onSlotClick: () => void;
+}
+
+function DroppableTimeSlot({ hour, onSlotClick }: DroppableTimeSlotProps) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `time-slot-${hour}`,
+    data: {
+      type: 'time-slot',
+      hour,
+    },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      onClick={onSlotClick}
+      className={`
+        flex-1 cursor-pointer transition-colors
+        ${isOver ? 'bg-blue-50' : 'hover:bg-gray-50'}
+      `}
+    >
+      <div className="flex h-full items-center justify-center text-xs text-gray-400">
+        {isOver ? 'Drop here to schedule' : ''}
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// DASHBOARD CONTENT COMPONENT
+// ============================================
 
 interface DashboardContentProps {
   planner: FullPlanner;
@@ -49,6 +94,18 @@ export default function DashboardContent({
   const [isUpdating, setIsUpdating] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const router = useRouter();
+
+  // ✨ NEW: Time block modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingBlock, setEditingBlock] = useState<TimeBlock | null>(null);
+  const [droppedHour, setDroppedHour] = useState<number | null>(null);
+
+  // ✨ NEW: Track resize previews for real-time visual updates
+  const [resizingBlockId, setResizingBlockId] = useState<string | null>(null);
+  const [resizePreview, setResizePreview] = useState<{
+    startTime: string;
+    endTime: string;
+  } | null>(null);
 
   // ✨ FIX: Sync local state when server data changes (after refresh)
   useEffect(() => {
@@ -134,6 +191,15 @@ export default function DashboardContent({
     // ============================================
     if (activeType === 'priority-slot' && overType === 'priority-slot') {
       handlePriorityReorder(active.data.current?.slot, over.data.current?.slot);
+      return;
+    }
+
+    // ============================================
+    // SCENARIO 4: Brain Dump → Time Slot (Schedule) ✨ NEW
+    // ============================================
+    if (activeType === 'brain-dump-item' && overType === 'time-slot') {
+      const overHour = over.data.current?.hour;
+      handleDropOnTimeSlot(active.id as string, overHour);
       return;
     }
 
@@ -379,6 +445,127 @@ export default function DashboardContent({
   }
 
   // ============================================
+  // TIME BLOCK HANDLERS ✨ NEW
+  // ============================================
+
+  /**
+   * Handle dropping brain dump item on time slot
+   * Opens modal with pre-filled brain dump item
+   */
+  function handleDropOnTimeSlot(brainDumpItemId: string, hour: number) {
+    console.log(`📅 Dropped item ${brainDumpItemId} on hour ${hour}`);
+
+    // Find the brain dump item
+    const brainDumpItem = localBrainDump.find((i) => i.id === brainDumpItemId);
+    if (!brainDumpItem) return;
+
+    // Store the hour and open modal
+    setDroppedHour(hour);
+    setEditingBlock(null);
+    setIsModalOpen(true);
+  }
+
+  /**
+   * Handle creating a time block from modal
+   */
+  async function handleCreateTimeBlock(data: TimeBlockFormData) {
+    setIsUpdating(true);
+    try {
+      await createTimeBlock({
+        planner_id: planner.id,
+        start_time: data.start_time,
+        end_time: data.end_time,
+        brain_dump_item_id: data.brain_dump_item_id || undefined,
+        custom_text: data.custom_text || undefined,
+        notes: data.notes || undefined,
+        color_tag: data.color_tag,
+      });
+      router.refresh();
+      console.log('✅ Time block created successfully');
+    } catch (error) {
+      console.error('❌ Failed to create time block:', error);
+      alert('Failed to create time block. Please try again.');
+    } finally {
+      setIsUpdating(false);
+    }
+  }
+
+  /**
+   * Handle updating a time block from modal
+   */
+  async function handleUpdateTimeBlock(data: TimeBlockFormData) {
+    if (!editingBlock) return;
+
+    setIsUpdating(true);
+    try {
+      await updateTimeBlock(editingBlock.id, {
+        start_time: data.start_time,
+        end_time: data.end_time,
+        brain_dump_item_id: data.brain_dump_item_id,
+        custom_text: data.custom_text || null,
+        notes: data.notes || null,
+        color_tag: data.color_tag,
+      });
+      router.refresh();
+      console.log('✅ Time block updated successfully');
+    } catch (error) {
+      console.error('❌ Failed to update time block:', error);
+      alert('Failed to update time block. Please try again.');
+    } finally {
+      setIsUpdating(false);
+    }
+  }
+
+  /**
+   * Handle saving time block (create or update)
+   */
+  function handleSaveTimeBlock(data: TimeBlockFormData) {
+    if (editingBlock) {
+      handleUpdateTimeBlock(data);
+    } else {
+      handleCreateTimeBlock(data);
+    }
+  }
+
+  /**
+   * Handle clicking on time slot to create block
+   */
+  function handleTimeSlotClick(hour: number) {
+    setDroppedHour(hour);
+    setEditingBlock(null);
+    setIsModalOpen(true);
+  }
+
+  /**
+   * Handle clicking on time block to edit
+   */
+  function handleEditTimeBlock(block: TimeBlock) {
+    setEditingBlock(block);
+    setDroppedHour(null);
+    setIsModalOpen(true);
+  }
+
+  /**
+   * ✨ NEW: Handle resize preview for real-time visual updates
+   */
+  function handleResizePreview(
+    blockId: string,
+    tempStartTime: string,
+    tempEndTime: string
+  ) {
+    setResizingBlockId(blockId);
+    setResizePreview({ startTime: tempStartTime, endTime: tempEndTime });
+  }
+
+  /**
+   * ✨ NEW: Clear resize preview when resize ends
+   */
+  function handleResizeEnd() {
+    setResizingBlockId(null);
+    setResizePreview(null);
+  }
+
+  // ============================================
   // RENDER
   // ============================================
 
@@ -465,53 +652,102 @@ export default function DashboardContent({
               />
             </div>
 
-            {/* Right Column: Timeboxing Schedule */}
+            {/* Right Column: Timeboxing Schedule - ✨ VISUAL TIMELINE */}
             <div className="lg:col-span-2">
               <div className="rounded-lg bg-white p-6 shadow">
                 <h3 className="mb-4 text-lg font-bold">Schedule</h3>
 
-                {/* Timeline */}
-                <div className="space-y-2">
-                  {Array.from({ length: 19 }, (_, i) => i + 5).map((hour) => (
-                    <div key={hour} className="flex border-t border-gray-200">
-                      <div className="w-20 shrink-0 py-2 text-sm text-gray-600">
-                        {hour === 12
-                          ? '12:00 pm'
-                          : hour > 12
-                          ? `${hour - 12}:00 pm`
-                          : `${hour}:00 am`}
+                {/* Timeline Container with Absolute Positioning */}
+                <div className="relative max-h-[600px] overflow-y-auto">
+                  {/* Hour Grid Lines */}
+                  <div className="relative" style={{ height: '1920px' }}>
+                    {' '}
+                    {/* 24 hours × 80px */}
+                    {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
+                      <div
+                        key={hour}
+                        className="absolute left-0 right-0 flex border-t border-gray-200"
+                        style={{ top: `${hour * 80}px`, height: '80px' }}
+                      >
+                        {/* Time Label */}
+                        <div className="w-20 shrink-0 py-2 text-sm text-gray-600">
+                          {hour === 0
+                            ? '12:00 am'
+                            : hour === 12
+                            ? '12:00 pm'
+                            : hour > 12
+                            ? `${hour - 12}:00 pm`
+                            : `${hour}:00 am`}
+                        </div>
+
+                        {/* Droppable Zone */}
+                        <DroppableTimeSlot
+                          hour={hour}
+                          onSlotClick={() => handleTimeSlotClick(hour)}
+                        />
                       </div>
-                      <div className="flex-1 py-2">
-                        {planner.time_blocks
-                          .filter((block) => {
-                            const blockHour = parseInt(
-                              block.start_time.split(':')[0]
-                            );
-                            return blockHour === hour;
-                          })
-                          .map((block) => (
-                            <div
-                              key={block.id}
-                              className="mb-2 rounded-lg bg-blue-200 p-2 text-sm"
-                            >
-                              <div className="font-semibold">
-                                {block.start_time.substring(0, 5)} -{' '}
-                                {block.end_time.substring(0, 5)}
-                              </div>
-                              <div>
-                                {block.brain_dump_item?.text ||
-                                  block.custom_text}
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                    {/* Absolutely Positioned Time Blocks */}
+                    {planner.time_blocks.map((block) => {
+                      // ✨ Use preview times if this block is being resized
+                      const isResizing = resizingBlockId === block.id;
+                      const displayStartTime =
+                        isResizing && resizePreview
+                          ? resizePreview.startTime
+                          : block.start_time;
+                      const displayEndTime =
+                        isResizing && resizePreview
+                          ? resizePreview.endTime
+                          : block.end_time;
+
+                      const startMinutes = timeToMinutes(displayStartTime);
+                      const endMinutes = timeToMinutes(displayEndTime);
+                      const topPosition = (startMinutes / 60) * 80; // 80px per hour
+                      const height = ((endMinutes - startMinutes) / 60) * 80;
+
+                      return (
+                        <div
+                          key={block.id}
+                          className="absolute left-20 right-4"
+                          style={{
+                            top: `${topPosition}px`,
+                            height: `${height}px`,
+                            zIndex: isResizing ? 50 : 10, // Elevate resizing block
+                          }}
+                        >
+                          <ResizableTimeBlock
+                            block={block}
+                            onEdit={handleEditTimeBlock}
+                            onResizePreview={handleResizePreview}
+                            onResizeEnd={handleResizeEnd}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </main>
+
+        {/* Time Block Modal */}
+        <TimeBlockModal
+          isOpen={isModalOpen}
+          onClose={() => {
+            setIsModalOpen(false);
+            setEditingBlock(null);
+            setDroppedHour(null);
+          }}
+          onSave={handleSaveTimeBlock}
+          brainDumpItems={localBrainDump}
+          existingBlock={editingBlock}
+          initialStartTime={
+            droppedHour !== null
+              ? `${String(droppedHour).padStart(2, '0')}:00`
+              : undefined
+          }
+        />
 
         {/* Drag Overlay */}
         {/* @ts-expect-error - React 19 + @dnd-kit type compatibility issue */}
